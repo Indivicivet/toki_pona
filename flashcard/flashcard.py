@@ -35,6 +35,9 @@ class Flashcard(tk.Tk):
             for path in Path(__file__).resolve().parent.parent.glob("words/*.*")
         ]
 
+        self.random_word()
+
+    def random_word(self):
         self.current_word, self.current_path = random.choice(self.files)
 
         img = ImageTk.PhotoImage(Image.open(self.current_path))
@@ -46,6 +49,7 @@ class Flashcard(tk.Tk):
         user_entry = self.word_entry.get()
         if user_entry == self.current_word:
             print("yay")
+            self.random_word()
         else:
             print("no")
 
