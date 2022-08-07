@@ -9,6 +9,9 @@ words = Path(__file__).resolve().parent.parent / words_folder_name
 print("generating html")
 html = """
 <html>
+<head>
+<link rel="stylesheet" href="index_style.css">
+</head>
 <body>
 """
 
