@@ -13,6 +13,7 @@ html = """
 <link rel="stylesheet" href="index_style.css">
 </head>
 <body>
+<header>toki pona</header>
 """
 
 for word_file in words.glob("*.*"):
