@@ -23,7 +23,7 @@ class Flashcard(tk.Tk):
         self.img = tk.Label(self.frame)
         self.img.pack()
 
-        self.label = tk.Label(self.frame, text="hello :)")
+        self.label = tk.Label(self.frame, text="")
         self.label.pack()
 
         self.word_entry = tk.Entry(self.frame)
@@ -45,15 +45,15 @@ class Flashcard(tk.Tk):
         img = ImageTk.PhotoImage(Image.open(self.current_path))
         self.img.configure(image=img)
         self.img.image = img
-        self.label.configure(text=self.current_word)
+        self.label.configure(text="")
 
     def mark_entry(self, event):
         user_entry = self.word_entry.get()
         if user_entry == self.current_word:
-            print("yay")
+            self.label.configure(text=f"yes, it was {user_entry}")
             self.random_word()
         else:
-            print("no")
+            self.label.configure(text=f"no, it's not {user_entry}")
 
 
 if __name__ == "__main__":
