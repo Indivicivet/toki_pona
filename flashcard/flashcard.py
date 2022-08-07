@@ -38,6 +38,8 @@ class Flashcard(tk.Tk):
         self.random_word()
 
     def random_word(self):
+        self.word_entry.delete(0, tk.END)
+
         self.current_word, self.current_path = random.choice(self.files)
 
         img = ImageTk.PhotoImage(Image.open(self.current_path))
