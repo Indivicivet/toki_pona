@@ -18,7 +18,7 @@ html = """
 for word_file in words.glob("*.*"):
     html += f"""
 <div class="word">
-    {word_file.stem}
+    {word_file.stem} <br/>
     <img src="{words_folder_name}/{word_file.name}" />
 </div>
 """
