@@ -23,11 +23,21 @@ class Flashcard(tk.Tk):
         self.img = tk.Label(self.frame)
         self.img.pack()
 
-        self.label = tk.Label(self.frame, text="")
+        self.label = tk.Label(self.frame)
         self.label.pack()
 
         self.word_entry = tk.Entry(self.frame)
         self.word_entry.pack()
+
+        self.spoiler = tk.Button(
+            self.frame,
+            text="please tell me!",
+            command=self.spoiler_please,
+        )
+        self.spoiler.pack()
+
+        self.spoiler_label = tk.Label(self.frame)
+        self.spoiler_label.pack()
 
         # word, file path
         self.files = [
@@ -39,6 +49,7 @@ class Flashcard(tk.Tk):
 
     def random_word(self):
         self.word_entry.delete(0, tk.END)
+        self.spoiler_label.configure(text="")
 
         self.current_word, self.current_path = random.choice(self.files)
 
@@ -50,10 +61,13 @@ class Flashcard(tk.Tk):
     def mark_entry(self, event):
         user_entry = self.word_entry.get()
         if user_entry == self.current_word:
-            self.label.configure(text=f"yes, it was {user_entry}")
             self.random_word()
+            self.label.configure(text=f"yes, it was {user_entry}")
         else:
             self.label.configure(text=f"no, it's not {user_entry}")
+
+    def spoiler_please(self):
+        self.spoiler_label.configure(text=f"pst, it's {self.current_word}")
 
 
 if __name__ == "__main__":
