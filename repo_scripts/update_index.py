@@ -25,6 +25,13 @@ for word_file in words.glob("*.*"):
 """
 
 html += """
+<div id="footer">
+<span class="small_note">
+check out 
+<a href="https://github.com/indivicivet/toki_pona/">https://github.com/indivicivet/toki_pona/</a>
+for more useful things (e.g. a very minimal flashcard app)
+</span>
+</div>
 </body>
 </html>
 """
