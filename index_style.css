@@ -20,3 +20,20 @@ header {
 	margin: 5px;
 	border: 2px solid black;
 }
+
+#footer {
+	padding: 20px;
+}
+
+.small_note {
+	font-size: 16pt;
+	color: #888;
+}
+
+.small_note a {
+	color: #66F;
+}
+
+.small_note a:visited {
+	color: #B6F;
+}
