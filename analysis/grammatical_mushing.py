@@ -10,6 +10,17 @@ def do_stuff(file):
         if s.strip()
     ]
     for i, s in enumerate(sents):
+        if s.split()[0] == "mi":
+            s = "mi li" + s[2:]
+        elif s.split()[0] == "sina":
+            s = "sina li" + s[4:]
+        if " li " in s:
+            idx = s.index(" li ")
+            s = "[" + s[:idx] + "]" + s[idx + 4:]
+        if " la " in s:
+            # todo :: recursive parsing needed eh...?
+            idx = s.index(" la ")
+            s = "{" + s[:idx] + "} " + s[idx + 4:]
         s2 = s.replace(" e ", ">>").replace(" pi ", ";")
         sents[i] = s2
     return ". ".join(sents)
