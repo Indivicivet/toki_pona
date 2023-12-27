@@ -51,21 +51,28 @@ def load_word_file(f):
     )
 
 
-def load_words(
+def load_words_dict(
     min_usage=Usage.WIDESPREAD,
     word_folder=SONA_FOLDER / "words",
 ):
     files = list(word_folder.glob("*toml"))
     if not files:
         raise ValueError(f"found no files in {word_folder}")
-    return [
-        word
+    return {
+        word.word: word
         for f in files
         if (word := load_word_file(f)).usage >= min_usage
-    ]
+    }
+
+
+def load_words_info(**kwargs):
+    return list(load_words_dict(**kwargs).values())
+
+
+def load_words_str(**kwargs):
+    return list(load_words_dict(**kwargs).keys())
 
 
 if __name__ == "__main__":
-    WORDS = load_words()
-    print(WORDS[0])
-    print(repr(WORDS[0]))
+    WORDS = load_words_info()
+    print(WORDS)

@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import pylinku
 
-words = [str(w) for w in pylinku.load_words()]
+words = pylinku.load_words_str()
 
 ways_to_form = defaultdict(list)
 
