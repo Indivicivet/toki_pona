@@ -112,20 +112,24 @@ class Transcriber(QWidget):
         self.setMinimumSize(1280, 720)
         self.setLayout(QVBoxLayout())
 
-        font = QFont()
-        font.setPointSize(18)
+        self.font = QFont()
+        self.font.setPointSize(18)
         self.language_sets = load_language_sets()
 
         # Top bar: language set selector + (+) add button
         top = QHBoxLayout()
         self.layout().addLayout(top)
-        top.addWidget(QLabel("language set:"))
+        self.lang_set_label = QLabel("language set:")
+        top.addWidget(self.lang_set_label)
+        self.lang_set_label.setFont(self.font)
         self.set_combo = QComboBox()
+        self.set_combo.setFont(self.font)
         for name in self.language_sets.keys():
             self.set_combo.addItem(name)
         top.addWidget(self.set_combo)
         self.add_btn = QPushButton("(+)")
         self.add_btn.setFixedWidth(48)
+        self.add_btn.setFont(self.font)
         top.addWidget(self.add_btn)
 
         # Dynamic panes container
@@ -197,11 +201,9 @@ class Transcriber(QWidget):
         edit = FocusAwareText()
         edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Apply app font inherited from top-level
-        font = self.font()
-        lang_combo.setFont(font)
-        close_btn.setFont(font)
-        edit.setFont(font)
+        lang_combo.setFont(self.font)
+        close_btn.setFont(self.font)
+        edit.setFont(self.font)
 
         col.addLayout(head)
         col.addWidget(edit)
@@ -463,11 +465,6 @@ class Transcriber(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    # Global font scaling
-    big_font = QFont()
-    big_font.setPointSize(18)
-    app.setFont(big_font)
-
     w = Transcriber()
     w.show()
     sys.exit(app.exec())
