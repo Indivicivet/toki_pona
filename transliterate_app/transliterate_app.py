@@ -137,6 +137,7 @@ class Transcriber(QWidget):
 
         self.save_btn = QPushButton("Save")
         self.save_btn.setFixedWidth(64)
+        self.save_btn.setFont(self.font)
         top.addWidget(self.save_btn)
 
         # Dynamic panes container
