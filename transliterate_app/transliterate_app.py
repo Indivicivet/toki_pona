@@ -139,7 +139,7 @@ class Transcriber(QWidget):
         self.display_to_real = {}
         self.labels = []
         self.updating = False
-        self.panes = []  # list of dicts: {lang_combo, close_btn, edit}
+        self.panes = []  # list of dicts: {lang_combo, close_btn, edit, layout}
 
         self.set_combo.currentTextChanged.connect(self._on_change_set)
         self.add_btn.clicked.connect(self._on_add_pane)
@@ -155,6 +155,19 @@ class Transcriber(QWidget):
         # Seed text in first pane
         if self.panes:
             self.panes[0]["edit"].setPlainText("mi sona e ni.")
+
+    # ---- NEW: robust layout clear to avoid half-removed panes ----
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+                continue
+            child_layout = item.layout()
+            if child_layout is not None:
+                self._clear_layout(child_layout)
+                child_layout.deleteLater()
 
     def _on_add_pane(self):
         if len(self.panes) >= len(self.labels):
@@ -192,15 +205,14 @@ class Transcriber(QWidget):
 
         col.addLayout(head)
         col.addWidget(edit)
-        # Keep references by wrapping in a small container dict
         pane = {"layout": col, "lang_combo": lang_combo, "close_btn": close_btn, "edit": edit}
         self.panes_row.addLayout(col)
         self.panes.append(pane)
 
-        # Wire signals
-        lang_combo.currentTextChanged.connect(lambda _: self._on_pane_lang_changed(pane))
-        close_btn.clicked.connect(lambda: self._close_pane(pane))
-        edit.textChanged.connect(lambda: self._on_text_changed(pane))
+        # Wire signals (bind pane at connect-time to avoid late-binding issues)
+        lang_combo.currentTextChanged.connect(lambda _, p=pane: self._on_pane_lang_changed(p))
+        close_btn.clicked.connect(lambda _, p=pane: self._close_pane(p))
+        edit.textChanged.connect(lambda p=pane: self._on_text_changed(p))
         edit.focusOutEvent = self._wrap_focus_out(edit, pane)
 
         # Autofill contents from an existing source pane if present
@@ -208,28 +220,28 @@ class Transcriber(QWidget):
             src = self._best_source_pane()
             if src:
                 self._translate_from_source(src)
-        else:
-            # First pane: nothing to translate yet
-            pass
 
     def _close_pane(self, pane):
         if len(self.panes) <= 1:
             return  # keep at least one
-        # Remove widgets from layout and delete
-        for i in reversed(range(pane["layout"].count())):
-            item = pane["layout"].itemAt(i)
-            w = item.widget()
-            if w:
-                w.setParent(None)
-        self.panes_row.removeItem(pane["layout"])
+        if pane not in self.panes:
+            return  # already closed or stale signal
+
+        layout = pane["layout"]
+        # Remove from tracking first to prevent re-entrancy issues
         self.panes.remove(pane)
-        # After removal, retranslate all from best source
+
+        # Clean up UI objects safely
+        self._clear_layout(layout)
+        self.panes_row.removeItem(layout)
+        layout.deleteLater()
+
+        # Retranslate remaining panes
         src = self._best_source_pane()
         if src:
             self._translate_from_source(src)
 
     def _best_source_pane(self):
-        # Prefer the pane currently being edited; else first non-empty; else first pane.
         for p in self.panes:
             if p["edit"].has_editing_focus():
                 return p
@@ -250,7 +262,6 @@ class Transcriber(QWidget):
         for disp, real in zip(self.labels, self.header):
             self.display_to_real[disp] = real
 
-        # Rebuild all pane language combos to match this set, keep best-effort selection
         for p in self.panes:
             current = p["lang_combo"].currentText() if p["lang_combo"].count() else None
             p["lang_combo"].blockSignals(True)
@@ -260,13 +271,11 @@ class Transcriber(QWidget):
             if current in self.labels:
                 p["lang_combo"].setCurrentText(current)
             else:
-                # choose first unused language
                 used = {q["lang_combo"].currentText() for q in self.panes if q is not p}
                 pick = next((lab for lab in self.labels if lab not in used), self.labels[0])
                 p["lang_combo"].setCurrentText(pick)
             p["lang_combo"].blockSignals(False)
 
-        # Translate everything from best source pane
         src = self._best_source_pane()
         if src:
             self._translate_from_source(src)
@@ -330,7 +339,7 @@ class Transcriber(QWidget):
             src_is_typing = src_edit.has_editing_focus()
             at_end = src_edit.textCursor().position() == len(src_text)
 
-            for pane in self.panes:
+            for pane in list(self.panes):  # iterate over a snapshot
                 if pane is src_pane:
                     continue
                 dst_edit = pane["edit"]
