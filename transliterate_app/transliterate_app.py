@@ -191,7 +191,11 @@ class Transcriber(QWidget):
         self.updating = True
         try:
             edit = self.left_edit if side == "left" else self.right_edit
-            lang = self._real_lang(self.left_lang) if side == "left" else self._real_lang(self.right_lang)
+            lang = (
+                self._real_lang(self.left_lang)
+                if side == "left"
+                else self._real_lang(self.right_lang)
+            )
             tokens = self._tokens(edit.toPlainText(), lang)
             committed = []
             for tok in tokens:
@@ -225,8 +229,16 @@ class Transcriber(QWidget):
         try:
             src_edit = self.left_edit if src_side == "left" else self.right_edit
             dst_edit = self.right_edit if src_side == "left" else self.left_edit
-            src_lang = self._real_lang(self.left_lang) if src_side == "left" else self._real_lang(self.right_lang)
-            dst_lang = self._real_lang(self.right_lang) if src_side == "left" else self._real_lang(self.left_lang)
+            src_lang = (
+                self._real_lang(self.left_lang)
+                if src_side == "left"
+                else self._real_lang(self.right_lang)
+            )
+            dst_lang = (
+                self._real_lang(self.right_lang)
+                if src_side == "left"
+                else self._real_lang(self.left_lang)
+            )
 
             src_text = src_edit.toPlainText()
             src_tokens = self._tokens(src_text, src_lang)
@@ -294,7 +306,9 @@ class Transcriber(QWidget):
         self._translate_fill("left")
 
     def _label_for(self, real_name):
-        return f"{real_name} (space-free)" if real_name in self.space_free else real_name
+        return (
+            f"{real_name} (space-free)" if real_name in self.space_free else real_name
+        )
 
     def _real_lang(self, combo):
         disp = combo.currentText()
