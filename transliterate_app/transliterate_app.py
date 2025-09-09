@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QTextEdit,
     QSizePolicy,
+    QPushButton,
+    QMessageBox,
 )
 
 PUNCT = set(";:.,?!")  # trailing-word punctuation treated as standalone tokens
@@ -114,85 +116,187 @@ class Transcriber(QWidget):
         font.setPointSize(18)
         self.language_sets = load_language_sets()
 
+        # Top bar: language set selector + (+) add button
         top = QHBoxLayout()
         self.layout().addLayout(top)
         top.addWidget(QLabel("language set:"))
-
         self.set_combo = QComboBox()
         for name in self.language_sets.keys():
             self.set_combo.addItem(name)
         top.addWidget(self.set_combo)
+        self.add_btn = QPushButton("(+)")
+        self.add_btn.setFixedWidth(48)
+        top.addWidget(self.add_btn)
 
-        langs_row = QHBoxLayout()
-        self.layout().addLayout(langs_row)
-        self.left_lang = QComboBox()
-        self.right_lang = QComboBox()
-        langs_row.addWidget(self.left_lang)
-        langs_row.addWidget(self.right_lang)
-
-        edits = QHBoxLayout()
-        self.layout().addLayout(edits)
-        self.left_edit = FocusAwareText()
-        self.right_edit = FocusAwareText()
-        self.left_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.right_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        edits.addWidget(self.left_edit)
-        edits.addWidget(self.right_edit)
-
-        self.left_edit.setFont(font)
-        self.right_edit.setFont(font)
-        self.left_lang.setFont(font)
-        self.right_lang.setFont(font)
-        self.set_combo.setFont(font)
+        # Dynamic panes container
+        self.panes_row = QHBoxLayout()
+        self.layout().addLayout(self.panes_row)
 
         self.header = []
         self.rows = []
         self.forward = {}
         self.space_free = set()
         self.display_to_real = {}
+        self.labels = []
         self.updating = False
+        self.panes = []  # list of dicts: {lang_combo, close_btn, edit}
 
         self.set_combo.currentTextChanged.connect(self._on_change_set)
-        self.left_lang.currentTextChanged.connect(self._on_change_left_lang)
-        self.right_lang.currentTextChanged.connect(self._on_change_right_lang)
-        self.left_edit.textChanged.connect(lambda: self._on_text_changed("left"))
-        self.right_edit.textChanged.connect(lambda: self._on_text_changed("right"))
-        self.left_edit.focusOutEvent = self._wrap_focus_out(self.left_edit, "left")
-        self.right_edit.focusOutEvent = self._wrap_focus_out(self.right_edit, "right")
+        self.add_btn.clicked.connect(self._on_add_pane)
 
-        # Initialize from the FIRST found CSV
+        # Initialize from FIRST CSV, then create two panes
         first_set_name = next(iter(self.language_sets.keys()))
         self.set_combo.setCurrentText(first_set_name)
         self._on_change_set(first_set_name)
 
-        # Default left/right languages: use first two columns if present
-        if len(self.header) >= 1:
-            self.left_lang.setCurrentText(self._label_for(self.header[0]))
-        if len(self.header) >= 2:
-            self.right_lang.setCurrentText(self._label_for(self.header[1]))
-        self.left_edit.setPlainText("mi sona e ni.")
-        self._translate_fill("left")
+        # Default: 2 panes
+        self._on_add_pane()
+        self._on_add_pane()
+        # Seed text in first pane
+        if self.panes:
+            self.panes[0]["edit"].setPlainText("mi sona e ni.")
 
-    def _wrap_focus_out(self, widget, side):
+    def _on_add_pane(self):
+        if len(self.panes) >= len(self.labels):
+            QMessageBox.information(self, "Limit", "No more languages available.")
+            return
+        # Choose first label not used yet
+        used = {p["lang_combo"].currentText() for p in self.panes}
+        chosen_label = None
+        for lab in self.labels:
+            if lab not in used:
+                chosen_label = lab
+                break
+        if chosen_label is None:
+            chosen_label = self.labels[0]
+        # Build pane widgets
+        col = QVBoxLayout()
+        head = QHBoxLayout()
+        lang_combo = QComboBox()
+        for lab in self.labels:
+            lang_combo.addItem(lab)
+        lang_combo.setCurrentText(chosen_label)
+        close_btn = QPushButton("X")
+        close_btn.setFixedWidth(28)
+        head.addWidget(lang_combo)
+        head.addWidget(close_btn)
+
+        edit = FocusAwareText()
+        edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # Apply app font inherited from top-level
+        font = self.font()
+        lang_combo.setFont(font)
+        close_btn.setFont(font)
+        edit.setFont(font)
+
+        col.addLayout(head)
+        col.addWidget(edit)
+        # Keep references by wrapping in a small container dict
+        pane = {"layout": col, "lang_combo": lang_combo, "close_btn": close_btn, "edit": edit}
+        self.panes_row.addLayout(col)
+        self.panes.append(pane)
+
+        # Wire signals
+        lang_combo.currentTextChanged.connect(lambda _: self._on_pane_lang_changed(pane))
+        close_btn.clicked.connect(lambda: self._close_pane(pane))
+        edit.textChanged.connect(lambda: self._on_text_changed(pane))
+        edit.focusOutEvent = self._wrap_focus_out(edit, pane)
+
+        # Autofill contents from an existing source pane if present
+        if len(self.panes) > 1:
+            src = self._best_source_pane()
+            if src:
+                self._translate_from_source(src)
+        else:
+            # First pane: nothing to translate yet
+            pass
+
+    def _close_pane(self, pane):
+        if len(self.panes) <= 1:
+            return  # keep at least one
+        # Remove widgets from layout and delete
+        for i in reversed(range(pane["layout"].count())):
+            item = pane["layout"].itemAt(i)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+        self.panes_row.removeItem(pane["layout"])
+        self.panes.remove(pane)
+        # After removal, retranslate all from best source
+        src = self._best_source_pane()
+        if src:
+            self._translate_from_source(src)
+
+    def _best_source_pane(self):
+        # Prefer the pane currently being edited; else first non-empty; else first pane.
+        for p in self.panes:
+            if p["edit"].has_editing_focus():
+                return p
+        for p in self.panes:
+            if p["edit"].toPlainText().strip():
+                return p
+        return self.panes[0] if self.panes else None
+
+    # -------- Data / languages --------
+
+    def _on_change_set(self, set_name):
+        csv_text = self.language_sets[set_name]
+        self.header, self.rows = parse_csv(csv_text)
+        self.forward = build_index_maps(self.header, self.rows)
+        self.space_free = space_free_columns(self.header, self.rows)
+        self.display_to_real = {}
+        self.labels = [self._label_for(h) for h in self.header]
+        for disp, real in zip(self.labels, self.header):
+            self.display_to_real[disp] = real
+
+        # Rebuild all pane language combos to match this set, keep best-effort selection
+        for p in self.panes:
+            current = p["lang_combo"].currentText() if p["lang_combo"].count() else None
+            p["lang_combo"].blockSignals(True)
+            p["lang_combo"].clear()
+            for lab in self.labels:
+                p["lang_combo"].addItem(lab)
+            if current in self.labels:
+                p["lang_combo"].setCurrentText(current)
+            else:
+                # choose first unused language
+                used = {q["lang_combo"].currentText() for q in self.panes if q is not p}
+                pick = next((lab for lab in self.labels if lab not in used), self.labels[0])
+                p["lang_combo"].setCurrentText(pick)
+            p["lang_combo"].blockSignals(False)
+
+        # Translate everything from best source pane
+        src = self._best_source_pane()
+        if src:
+            self._translate_from_source(src)
+
+    # -------- Translation flow --------
+
+    def _on_pane_lang_changed(self, src_pane):
+        self._translate_from_source(src_pane)
+
+    def _on_text_changed(self, src_pane):
+        if self.updating:
+            return
+        self._translate_from_source(src_pane)
+
+    def _wrap_focus_out(self, widget, pane):
         base = widget.focusOutEvent
 
         def handler(e):
-            self._commit_brackets(side)
+            self._commit_brackets(pane)
             base(e)
 
         return handler
 
-    def _commit_brackets(self, side):
+    def _commit_brackets(self, pane):
         if self.updating:
             return
         self.updating = True
         try:
-            edit = self.left_edit if side == "left" else self.right_edit
-            lang = (
-                self._real_lang(self.left_lang)
-                if side == "left"
-                else self._real_lang(self.right_lang)
-            )
+            edit = pane["edit"]
+            lang = self._real_lang_of_pane(pane)
             tokens = self._tokens(edit.toPlainText(), lang)
             committed = []
             for tok in tokens:
@@ -212,99 +316,64 @@ class Transcriber(QWidget):
                 c = edit.textCursor()
                 c.setPosition(min(cursor_pos, len(new_text)))
                 edit.setTextCursor(c)
-            self._translate_fill(side)
+            self._translate_from_source(pane)
         finally:
             self.updating = False
 
-    def _on_text_changed(self, side):
-        if self.updating:
-            return
-        self._translate_fill(src_side=side)
-
-    def _translate_fill(self, src_side):
+    def _translate_from_source(self, src_pane):
         self.updating = True
         try:
-            src_edit = self.left_edit if src_side == "left" else self.right_edit
-            dst_edit = self.right_edit if src_side == "left" else self.left_edit
-            src_lang = (
-                self._real_lang(self.left_lang)
-                if src_side == "left"
-                else self._real_lang(self.right_lang)
-            )
-            dst_lang = (
-                self._real_lang(self.right_lang)
-                if src_side == "left"
-                else self._real_lang(self.left_lang)
-            )
+            src_edit = src_pane["edit"]
+            src_lang = self._real_lang_of_pane(src_pane)
             src_text = src_edit.toPlainText()
             src_tokens = self._tokens(src_text, src_lang)
             src_is_typing = src_edit.has_editing_focus()
             at_end = src_edit.textCursor().position() == len(src_text)
 
-            dst_tokens = []
-            for i, tok in enumerate(src_tokens):
-                is_last = i == len(src_tokens) - 1
+            for pane in self.panes:
+                if pane is src_pane:
+                    continue
+                dst_edit = pane["edit"]
+                dst_lang = self._real_lang_of_pane(pane)
 
-                if tok in PUNCT:
-                    dst_tokens.append(tok)
-                    continue
-                if tok.startswith("[") and tok.endswith("]"):
-                    inside = tok[1:-1]
-                    mapped = self._map_exact(src_lang, dst_lang, inside)
-                    dst_tokens.append(mapped if mapped is not None else f"[{inside}]")
-                    continue
+                dst_tokens = []
+                for i, tok in enumerate(src_tokens):
+                    is_last = i == len(src_tokens) - 1
+                    if tok in PUNCT:
+                        dst_tokens.append(tok)
+                        continue
+                    if tok.startswith("[") and tok.endswith("]"):
+                        inside = tok[1:-1]
+                        mapped = self._map_exact(src_lang, dst_lang, inside)
+                        dst_tokens.append(mapped if mapped is not None else f"[{inside}]")
+                        continue
+                    mapped = self._map_exact(src_lang, dst_lang, tok)
+                    if mapped is not None:
+                        dst_tokens.append(mapped)
+                        continue
+                    if src_is_typing and is_last and at_end:
+                        dst_tokens.append(f"[{tok}]")
+                    else:
+                        dst_tokens.append(f"[{tok}]")
 
-                mapped = self._map_exact(src_lang, dst_lang, tok)
-                if mapped is not None:
-                    dst_tokens.append(mapped)
-                    continue
-                if src_is_typing and is_last and at_end:
-                    dst_tokens.append(f"[{tok}]")
-                else:
-                    dst_tokens.append(f"[{tok}]")
-            new_dst = self._join(dst_tokens, dst_lang)
-            if new_dst != dst_edit.toPlainText():
-                cursor = dst_edit.textCursor()
-                dst_edit.setPlainText(new_dst)
-                if not dst_edit.has_editing_focus():
-                    dst_edit.setTextCursor(cursor)
+                new_dst = self._join(dst_tokens, dst_lang)
+                if new_dst != dst_edit.toPlainText():
+                    cursor = dst_edit.textCursor()
+                    dst_edit.setPlainText(new_dst)
+                    if not dst_edit.has_editing_focus():
+                        dst_edit.setTextCursor(cursor)
         finally:
             self.updating = False
 
-    def _on_change_set(self, set_name):
-        csv_text = self.language_sets[set_name]
-        self.header, self.rows = parse_csv(csv_text)
-        self.forward = build_index_maps(self.header, self.rows)
-        self.space_free = space_free_columns(self.header, self.rows)
-
-        self.display_to_real = {}
-        labels = [self._label_for(h) for h in self.header]
-        for disp, real in zip(labels, self.header):
-            self.display_to_real[disp] = real
-
-        self.left_lang.blockSignals(True)
-        self.right_lang.blockSignals(True)
-        self.left_lang.clear()
-        self.right_lang.clear()
-        for disp in labels:
-            self.left_lang.addItem(disp)
-            self.right_lang.addItem(disp)
-        self.left_lang.blockSignals(False)
-        self.right_lang.blockSignals(False)
-
-    def _on_change_left_lang(self, _):
-        self._translate_fill("left")
-
-    def _on_change_right_lang(self, _):
-        self._translate_fill("left")
+    # -------- Mapping + tokenization --------
 
     def _label_for(self, real_name):
         return (
             f"{real_name} (space-free)" if real_name in self.space_free else real_name
         )
 
-    def _real_lang(self, combo):
-        disp = combo.currentText()
+    def _real_lang_of_pane(self, pane):
+        disp = pane["lang_combo"].currentText()
         return self.display_to_real.get(disp, disp)
 
     def _map_exact(self, src_lang, dst_lang, token):
@@ -361,9 +430,10 @@ class Transcriber(QWidget):
                 if cj == "[" or ("\u4e00" <= cj <= "\u9fff"):
                     break
                 j += 1
-            out.append(text[i:j])
+            chunk = text[i:j]
+            if chunk:
+                out.extend(split_trailing_punct(chunk))
             i = j
-        # drop empty tokens introduced by adjacency
         return [t for t in out if t != ""]
 
     def _join(self, tokens, lang):
@@ -384,6 +454,11 @@ class Transcriber(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    # Global font scaling
+    big_font = QFont()
+    big_font.setPointSize(18)
+    app.setFont(big_font)
+
     w = Transcriber()
     w.show()
     sys.exit(app.exec())
