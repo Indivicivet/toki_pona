@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
+PUNCT = set(";:.,?!")  # trailing-word punctuation treated as standalone tokens
+
 
 def parse_csv(text):
     rows = list(csv.reader(StringIO(text)))
@@ -72,6 +74,20 @@ def load_language_sets():
     return sets
 
 
+def split_trailing_punct(token):
+    if not token or (token.startswith("[") and token.endswith("]")):
+        return [token] if token else []
+    i = len(token)
+    while i > 0 and token[i - 1] in PUNCT:
+        i -= 1
+    head, tail = token[:i], token[i:]
+    out = []
+    if head:
+        out.append(head)
+    out.extend(list(tail))  # each punct char becomes its own token
+    return out
+
+
 class FocusAwareText(QTextEdit):
     def __init__(self):
         super().__init__()
@@ -97,7 +113,7 @@ class Transcriber(QWidget):
         self.setLayout(QVBoxLayout())
 
         font = QFont()
-        font.setPointSize(18)  # pick a size you like
+        font.setPointSize(18)
         self.language_sets = load_language_sets()
 
         top = QHBoxLayout()
@@ -157,7 +173,7 @@ class Transcriber(QWidget):
         if len(self.header) >= 2:
             self.right_lang.setCurrentText(self._label_for(self.header[1]))
 
-        self.left_edit.setPlainText("mi sona e ni")
+        self.left_edit.setPlainText("mi sona e ni.")
         self._translate_fill("left")
 
     def _wrap_focus_out(self, widget, side):
@@ -179,7 +195,9 @@ class Transcriber(QWidget):
             tokens = self._tokens(edit.toPlainText(), lang)
             committed = []
             for tok in tokens:
-                if tok.startswith("[") and tok.endswith("]"):
+                if tok in PUNCT:
+                    committed.append(tok)
+                elif tok.startswith("[") and tok.endswith("]"):
                     committed.append(tok)
                 else:
                     if not self._has_exact_mapping(lang, tok):
@@ -220,6 +238,9 @@ class Transcriber(QWidget):
             for i, tok in enumerate(src_tokens):
                 is_last = i == len(src_tokens) - 1
 
+                if tok in PUNCT:
+                    dst_tokens.append(tok)
+                    continue
                 if tok.startswith("[") and tok.endswith("]"):
                     inside = tok[1:-1]
                     mapped = self._map_exact(src_lang, dst_lang, inside)
@@ -280,12 +301,16 @@ class Transcriber(QWidget):
         return self.display_to_real.get(disp, disp)
 
     def _map_exact(self, src_lang, dst_lang, token):
+        if token in PUNCT:
+            return token
         entry = self.forward.get(src_lang, {}).get(token)
         if not entry:
             return None
         return entry.get(dst_lang)
 
     def _has_exact_mapping(self, lang, token):
+        if token in PUNCT:
+            return True
         return token in self.forward.get(lang, {})
 
     def _tokens(self, text, lang):
@@ -295,7 +320,13 @@ class Transcriber(QWidget):
 
     @staticmethod
     def _tokens_ws(text):
-        return text.strip().split() if text.strip() else []
+        if not text.strip():
+            return []
+        raw = text.strip().split()
+        out = []
+        for tok in raw:
+            out.extend(split_trailing_punct(tok))
+        return out
 
     @staticmethod
     def _tokens_space_free(text):
@@ -329,7 +360,19 @@ class Transcriber(QWidget):
         return [t for t in out if t != ""]
 
     def _join(self, tokens, lang):
-        return "".join(tokens) if lang in self.space_free else " ".join(tokens)
+        if lang in self.space_free:
+            return "".join(tokens)
+        pieces = []
+        for idx, tok in enumerate(tokens):
+            if tok in PUNCT:
+                pieces.append(tok)
+                if idx != len(tokens) - 1:
+                    pieces.append(" ")
+            else:
+                if pieces and not pieces[-1].endswith(" "):
+                    pieces.append(" ")
+                pieces.append(tok)
+        return "".join(pieces).strip()
 
 
 if __name__ == "__main__":
