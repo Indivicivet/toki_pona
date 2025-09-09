@@ -63,7 +63,8 @@ def load_language_sets():
     files = sorted(Path(".").glob("lang_*.csv"), key=lambda p: p.name.lower())
     if not files:
         raise FileNotFoundError(
-            "No language CSVs found. Add files named like 'lang_*.csv' with a header row."
+            "No language CSVs found."
+            " Add files named like 'lang_*.csv' with a header row."
         )
     for f in files:
         text = f.read_text(encoding="utf-8").strip()
@@ -207,14 +208,21 @@ class Transcriber(QWidget):
 
         col.addLayout(head)
         col.addWidget(edit)
-        pane = {"layout": col, "lang_combo": lang_combo, "close_btn": close_btn, "edit": edit}
+        pane = {
+            "layout": col,
+            "lang_combo": lang_combo,
+            "close_btn": close_btn,
+            "edit": edit,
+        }
         self.panes_row.addLayout(col)
         self.panes.append(pane)
 
         # Wire signals (bind pane at connect-time to avoid late-binding issues)
-        lang_combo.currentTextChanged.connect(lambda _, p=pane: self._on_pane_lang_changed(p))
-        close_btn.clicked.connect(lambda _, p=pane: self._close_pane(p))
-        edit.textChanged.connect(lambda p=pane: self._on_text_changed(p))
+        lang_combo.currentTextChanged.connect(
+            lambda _: self._on_pane_lang_changed(pane)
+        )
+        close_btn.clicked.connect(lambda _: self._close_pane(pane))
+        edit.textChanged.connect(lambda: self._on_text_changed(pane))
         edit.focusOutEvent = self._wrap_focus_out(edit, pane)
 
         # Autofill contents from an existing source pane if present
@@ -274,7 +282,9 @@ class Transcriber(QWidget):
                 p["lang_combo"].setCurrentText(current)
             else:
                 used = {q["lang_combo"].currentText() for q in self.panes if q is not p}
-                pick = next((lab for lab in self.labels if lab not in used), self.labels[0])
+                pick = next(
+                    (lab for lab in self.labels if lab not in used), self.labels[0]
+                )
                 p["lang_combo"].setCurrentText(pick)
             p["lang_combo"].blockSignals(False)
 
@@ -356,7 +366,9 @@ class Transcriber(QWidget):
                     if tok.startswith("[") and tok.endswith("]"):
                         inside = tok[1:-1]
                         mapped = self._map_exact(src_lang, dst_lang, inside)
-                        dst_tokens.append(mapped if mapped is not None else f"[{inside}]")
+                        dst_tokens.append(
+                            mapped if mapped is not None else f"[{inside}]"
+                        )
                         continue
                     mapped = self._map_exact(src_lang, dst_lang, tok)
                     if mapped is not None:
