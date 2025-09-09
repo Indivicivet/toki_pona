@@ -4,6 +4,7 @@
 import sys
 import csv
 from io import StringIO
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -18,32 +19,18 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-# "sitelen kanpun" demo lexicon (toki pona, 漢字, english).
-# Note: community conventions differ; this is a minimal working sample.
-CSV_DATA = """
-toki pona,漢字,english
-mi,我,I
-sina,你,you
-ona,他,they
-ni,這,this
-e,額,(object marker)
-sona,知,know
-pali,工,work/do
-toki,言,speak
-pona,善,good
-jan,人,person
-moku,食,eat/food
-tomo,宅,house
-suli,大,big
-lili,小,small
-wawa,力,power
-suno,日,sun
-telo,水,water
-"""
-# The dropdown "language set" (future-proofing for multiple sets)
-LANGUAGE_SETS = {
-    "toki pona, 漢字": CSV_DATA.strip(),
-}
+
+def load_language_sets():
+    sets = {}
+    for f in Path(__file__).parent.glob("lang_*.csv"):
+        text = f.read_text(encoding="utf-8")
+        # first row is header, use it as key
+        header = text.strip().splitlines()[0]
+        sets[header] = text
+    return sets
+
+
+LANGUAGE_SETS = load_language_sets()
 
 
 def parse_csv(text):
