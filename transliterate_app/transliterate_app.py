@@ -1,13 +1,14 @@
 # pip install PySide6
 # Run: python tp_transcriber.py
+# Put one or more CSVs next to this file named like: lang_*.csv
 
 import sys
 import csv
 from io import StringIO
 from pathlib import Path
+from collections import OrderedDict
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -18,19 +19,6 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QSizePolicy,
 )
-
-
-def load_language_sets():
-    sets = {}
-    for f in Path(__file__).parent.glob("lang_*.csv"):
-        text = f.read_text(encoding="utf-8")
-        # first row is header, use it as key
-        header = text.strip().splitlines()[0]
-        sets[header] = text
-    return sets
-
-
-LANGUAGE_SETS = load_language_sets()
 
 
 def parse_csv(text):
@@ -69,6 +57,22 @@ def space_free_columns(header, rows):
     return sf
 
 
+def load_language_sets():
+    sets = OrderedDict()
+    files = sorted(Path(".").glob("lang_*.csv"), key=lambda p: p.name.lower())
+    if not files:
+        raise FileNotFoundError(
+            "No language CSVs found. Add files named like 'lang_*.csv' with a header row."
+        )
+    for f in files:
+        text = f.read_text(encoding="utf-8").strip()
+        if not text:
+            continue
+        header = text.splitlines()[0].strip()
+        sets[header] = text
+    return sets
+
+
 class FocusAwareText(QTextEdit):
     def __init__(self):
         super().__init__()
@@ -95,30 +99,26 @@ class Transcriber(QWidget):
 
         font = QFont()
         font.setPointSize(18)  # pick a size you like
+        self.language_sets = load_language_sets()
 
-        # Language set selector
         top = QHBoxLayout()
         self.layout().addLayout(top)
         top.addWidget(QLabel("language set:"))
 
         self.set_combo = QComboBox()
-        for k in LANGUAGE_SETS:
-            self.set_combo.addItem(k)
+        for name in self.language_sets.keys():
+            self.set_combo.addItem(name)
         top.addWidget(self.set_combo)
 
-        # Per-side language selectors
         langs_row = QHBoxLayout()
         self.layout().addLayout(langs_row)
-
         self.left_lang = QComboBox()
         self.right_lang = QComboBox()
         langs_row.addWidget(self.left_lang)
         langs_row.addWidget(self.right_lang)
 
-        # Editors
         edits = QHBoxLayout()
         self.layout().addLayout(edits)
-
         self.left_edit = FocusAwareText()
         self.right_edit = FocusAwareText()
         self.left_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -147,10 +147,17 @@ class Transcriber(QWidget):
         self.left_edit.focusOutEvent = self._wrap_focus_out(self.left_edit, "left")
         self.right_edit.focusOutEvent = self._wrap_focus_out(self.right_edit, "right")
 
-        self._on_change_set(self.set_combo.currentText())
-        if "toki pona" in self.header and "漢字" in self.header:
-            self.left_lang.setCurrentText(self._label_for("toki pona"))
-            self.right_lang.setCurrentText(self._label_for("漢字"))
+        # Initialize from the FIRST found CSV (no hardcoding)
+        first_set_name = next(iter(self.language_sets.keys()))
+        self.set_combo.setCurrentText(first_set_name)
+        self._on_change_set(first_set_name)
+
+        # Default left/right languages: use first two columns if present
+        if len(self.header) >= 1:
+            self.left_lang.setCurrentText(self._label_for(self.header[0]))
+        if len(self.header) >= 2:
+            self.right_lang.setCurrentText(self._label_for(self.header[1]))
+
         self.left_edit.setPlainText("mi sona e ni")
         self._translate_fill("left")
 
@@ -212,24 +219,23 @@ class Transcriber(QWidget):
 
             dst_tokens = []
             for i, tok in enumerate(src_tokens):
-                raw = tok.strip()
                 is_last = i == len(src_tokens) - 1
 
-                if raw.startswith("[") and raw.endswith("]"):
-                    inside = raw[1:-1]
+                if tok.startswith("[") and tok.endswith("]"):
+                    inside = tok[1:-1]
                     mapped = self._map_exact(src_lang, dst_lang, inside)
                     dst_tokens.append(mapped if mapped is not None else f"[{inside}]")
                     continue
 
-                mapped = self._map_exact(src_lang, dst_lang, raw)
+                mapped = self._map_exact(src_lang, dst_lang, tok)
                 if mapped is not None:
                     dst_tokens.append(mapped)
                     continue
 
                 if src_is_typing and is_last and at_end:
-                    dst_tokens.append(f"[{raw}]")
+                    dst_tokens.append(f"[{tok}]")
                 else:
-                    dst_tokens.append(f"[{raw}]")
+                    dst_tokens.append(f"[{tok}]")
 
             new_dst = self._join(dst_tokens, dst_lang)
             if new_dst != dst_edit.toPlainText():
@@ -241,7 +247,7 @@ class Transcriber(QWidget):
             self.updating = False
 
     def _on_change_set(self, set_name):
-        csv_text = LANGUAGE_SETS[set_name]
+        csv_text = self.language_sets[set_name]
         self.header, self.rows = parse_csv(csv_text)
         self.forward = build_index_maps(self.header, self.rows)
         self.space_free = space_free_columns(self.header, self.rows)
