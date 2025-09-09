@@ -6,6 +6,7 @@ import csv
 from io import StringIO
 from pathlib import Path
 from collections import OrderedDict
+from datetime import datetime
 
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -276,10 +277,12 @@ class Transcriber(QWidget):
         return "\n".join(parts).rstrip() + "\n"
 
     def _on_save(self):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = f"transcription_{timestamp}.txt"
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save transcription",
-            "transcription.txt",
+            default_name,
             "Text Files (*.txt);;All Files (*)",
         )
         if not path:
