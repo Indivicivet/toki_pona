@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QPushButton,
     QMessageBox,
+    QFileDialog,
 )
 
 PUNCT = set(";:.,?!")  # trailing-word punctuation treated as standalone tokens
@@ -133,6 +134,10 @@ class Transcriber(QWidget):
         self.add_btn.setFont(self.font)
         top.addWidget(self.add_btn)
 
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setFixedWidth(64)
+        top.addWidget(self.save_btn)
+
         # Dynamic panes container
         self.panes_row = QHBoxLayout()
         self.layout().addLayout(self.panes_row)
@@ -148,6 +153,7 @@ class Transcriber(QWidget):
 
         self.set_combo.currentTextChanged.connect(self._on_change_set)
         self.add_btn.clicked.connect(self._on_add_pane)
+        self.save_btn.clicked.connect(self._on_save)
 
         # Initialize from FIRST CSV, then create two panes
         first_set_name = next(iter(self.language_sets.keys()))
@@ -261,6 +267,29 @@ class Transcriber(QWidget):
         return self.panes[0] if self.panes else None
 
     # -------- Data / languages --------
+    def _collect_export_text(self):
+        parts = []
+        for p in self.panes:
+            lang_name = p["lang_combo"].currentText()
+            text = p["edit"].toPlainText()
+            parts.append(f"## {lang_name}\n{text}\n")
+        return "\n".join(parts).rstrip() + "\n"
+
+    def _on_save(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save transcription",
+            "transcription.txt",
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            data = self._collect_export_text()
+            Path(path).write_text(data, encoding="utf-8")
+            QMessageBox.information(self, "Saved", f"Saved to:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to save:\n{exc}")
 
     def _on_change_set(self, set_name):
         csv_text = self.language_sets[set_name]
