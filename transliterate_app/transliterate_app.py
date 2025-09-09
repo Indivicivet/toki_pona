@@ -6,7 +6,6 @@ import csv
 from io import StringIO
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -53,15 +52,7 @@ def parse_csv(text):
     return header, data_rows
 
 
-def build_column_indexes(header):
-    return {name: i for i, name in enumerate(header)}
-
-
 def build_index_maps(header, rows):
-    """
-    Returns per-language forward maps and reverse index:
-      forward[lang] = {word_in_lang: {lang2: word_in_lang2, ...}}
-    """
     forward = {name: {} for name in header}
     for r in rows:
         for i_from, lang_from in enumerate(header):
@@ -76,9 +67,23 @@ def build_index_maps(header, rows):
     return forward
 
 
+def space_free_columns(header, rows):
+    sf = set()
+    for j, name in enumerate(header):
+        all_single = True
+        for r in rows:
+            cell = r[j]
+            if cell and len(cell) != 1:
+                all_single = False
+                break
+        if all_single:
+            sf.add(name)
+    return sf
+
+
 class FocusAwareText(QTextEdit):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self):
+        super().__init__()
         self._has_focus = False
 
     def focusInEvent(self, e):
@@ -96,9 +101,8 @@ class FocusAwareText(QTextEdit):
 class Transcriber(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Transcriber: toki pona ↔ 漢字 (demo)")
-        self.setMinimumSize(820, 520)
-
+        self.setWindowTitle("Transcriber")
+        self.setMinimumSize(860, 520)
         self.setLayout(QVBoxLayout())
 
         # Language set selector
@@ -131,39 +135,32 @@ class Transcriber(QWidget):
         edits.addWidget(self.left_edit)
         edits.addWidget(self.right_edit)
 
-        # State
         self.header = []
         self.rows = []
         self.forward = {}
-        self.updating = False  # reentrancy guard
+        self.space_free = set()
+        self.display_to_real = {}
+        self.updating = False
 
-        # Wire signals
         self.set_combo.currentTextChanged.connect(self._on_change_set)
         self.left_lang.currentTextChanged.connect(self._on_change_left_lang)
         self.right_lang.currentTextChanged.connect(self._on_change_right_lang)
-        self.left_edit.textChanged.connect(lambda: self._on_text_changed(side="left"))
-        self.right_edit.textChanged.connect(lambda: self._on_text_changed(side="right"))
+        self.left_edit.textChanged.connect(lambda: self._on_text_changed("left"))
+        self.right_edit.textChanged.connect(lambda: self._on_text_changed("right"))
         self.left_edit.focusOutEvent = self._wrap_focus_out(self.left_edit, "left")
         self.right_edit.focusOutEvent = self._wrap_focus_out(self.right_edit, "right")
 
-        # Initialize
         self._on_change_set(self.set_combo.currentText())
-        # Defaults as in prompt
         if "toki pona" in self.header and "漢字" in self.header:
-            self.left_lang.setCurrentText("toki pona")
-            self.right_lang.setCurrentText("漢字")
-
+            self.left_lang.setCurrentText(self._label_for("toki pona"))
+            self.right_lang.setCurrentText(self._label_for("漢字"))
         self.left_edit.setPlainText("mi sona e ni")
-        # Trigger initial fill on right
-        self._translate_fill(src_side="left")
-
-    # --- Focus-out "commit" handling -------------------------------------
+        self._translate_fill("left")
 
     def _wrap_focus_out(self, widget, side):
         base = widget.focusOutEvent
 
         def handler(e):
-            # Commit bracketed unknowns: mirror brackets onto the editing side too
             self._commit_brackets(side)
             base(e)
 
@@ -175,33 +172,27 @@ class Transcriber(QWidget):
         self.updating = True
         try:
             edit = self.left_edit if side == "left" else self.right_edit
-            text = edit.toPlainText()
-            tokens = self._simple_tokens(text)
+            lang = self._real_lang(self.left_lang) if side == "left" else self._real_lang(self.right_lang)
+            tokens = self._tokens(edit.toPlainText(), lang)
             committed = []
             for tok in tokens:
                 if tok.startswith("[") and tok.endswith("]"):
-                    committed.append(tok)  # already bracketed
+                    committed.append(tok)
                 else:
-                    # If tok is unmapped in this language, bracket it
-                    lang = self.left_lang.currentText() if side == "left" else self.right_lang.currentText()
                     if not self._has_exact_mapping(lang, tok):
                         committed.append(f"[{tok}]")
                     else:
                         committed.append(tok)
-            new_text = self._join_tokens(committed)
-            if new_text != text:
+            new_text = self._join(committed, lang)
+            if new_text != edit.toPlainText():
                 cursor_pos = edit.textCursor().position()
                 edit.setPlainText(new_text)
                 c = edit.textCursor()
                 c.setPosition(min(cursor_pos, len(new_text)))
                 edit.setTextCursor(c)
-
-            # Reflect commit to the other side
-            self._translate_fill(src_side=side)
+            self._translate_fill(side)
         finally:
             self.updating = False
-
-    # --- Core translation logic ------------------------------------------
 
     def _on_text_changed(self, side):
         if self.updating:
@@ -213,30 +204,24 @@ class Transcriber(QWidget):
         try:
             src_edit = self.left_edit if src_side == "left" else self.right_edit
             dst_edit = self.right_edit if src_side == "left" else self.left_edit
-            src_lang = self.left_lang.currentText() if src_side == "left" else self.right_lang.currentText()
-            dst_lang = self.right_lang.currentText() if src_side == "left" else self.left_lang.currentText()
+            src_lang = self._real_lang(self.left_lang) if src_side == "left" else self._real_lang(self.right_lang)
+            dst_lang = self._real_lang(self.right_lang) if src_side == "left" else self._real_lang(self.left_lang)
 
             src_text = src_edit.toPlainText()
-            src_tokens = self._simple_tokens(src_text)
+            src_tokens = self._tokens(src_text, src_lang)
 
-            # Determine "typing" status to decide transient brackets.
             src_is_typing = src_edit.hasEditingFocus()
             at_end = src_edit.textCursor().position() == len(src_text)
-            has_trailing_space = src_text.endswith(" ")
 
             dst_tokens = []
             for i, tok in enumerate(src_tokens):
                 raw = tok.strip()
                 is_last = i == len(src_tokens) - 1
 
-                # Preserve already-bracketed placeholders symmetrically
                 if raw.startswith("[") and raw.endswith("]"):
                     inside = raw[1:-1]
                     mapped = self._map_exact(src_lang, dst_lang, inside)
-                    if mapped is None:
-                        dst_tokens.append(f"[{inside}]")
-                    else:
-                        dst_tokens.append(mapped)
+                    dst_tokens.append(mapped if mapped is not None else f"[{inside}]")
                     continue
 
                 mapped = self._map_exact(src_lang, dst_lang, raw)
@@ -244,23 +229,15 @@ class Transcriber(QWidget):
                     dst_tokens.append(mapped)
                     continue
 
-                # Unknown token. If currently typing the last token with no trailing space,
-                # show transient bracket on destination only if it could become a known word by completion,
-                # otherwise still show bracket to mirror unknown.
-                if src_is_typing and is_last and at_end and not has_trailing_space:
-                    if self._has_prefix_candidate(src_lang, raw):
-                        dst_tokens.append(f"[{raw}]")
-                    else:
-                        dst_tokens.append(f"[{raw}]")
+                if src_is_typing and is_last and at_end:
+                    dst_tokens.append(f"[{raw}]")
                 else:
-                    # Not actively typing this token → keep bracket on destination
                     dst_tokens.append(f"[{raw}]")
 
-            new_dst = self._join_tokens(dst_tokens)
+            new_dst = self._join(dst_tokens, dst_lang)
             if new_dst != dst_edit.toPlainText():
                 cursor = dst_edit.textCursor()
                 dst_edit.setPlainText(new_dst)
-                # Try not to steal user caret when they are the source
                 if not dst_edit.hasEditingFocus():
                     dst_edit.setTextCursor(cursor)
         finally:
@@ -270,31 +247,38 @@ class Transcriber(QWidget):
         csv_text = LANGUAGE_SETS[set_name]
         self.header, self.rows = parse_csv(csv_text)
         self.forward = build_index_maps(self.header, self.rows)
+        self.space_free = space_free_columns(self.header, self.rows)
 
-        # Refresh language dropdowns
+        self.display_to_real = {}
+        labels = [self._label_for(h) for h in self.header]
+        for disp, real in zip(labels, self.header):
+            self.display_to_real[disp] = real
+
         self.left_lang.blockSignals(True)
         self.right_lang.blockSignals(True)
         self.left_lang.clear()
         self.right_lang.clear()
-        for name in self.header:
-            self.left_lang.addItem(name)
-            self.right_lang.addItem(name)
+        for disp in labels:
+            self.left_lang.addItem(disp)
+            self.right_lang.addItem(disp)
         self.left_lang.blockSignals(False)
         self.right_lang.blockSignals(False)
 
     def _on_change_left_lang(self, _):
-        # Refill right from left text using new left language
-        self._translate_fill(src_side="left")
+        self._translate_fill("left")
 
     def _on_change_right_lang(self, _):
-        # Refill right using the new right language
-        self._translate_fill(src_side="left")
+        self._translate_fill("left")
 
-    # --- Mapping helpers --------------------------------------------------
+    def _label_for(self, real_name):
+        return f"{real_name} (space-free)" if real_name in self.space_free else real_name
+
+    def _real_lang(self, combo):
+        disp = combo.currentText()
+        return self.display_to_real.get(disp, disp)
 
     def _map_exact(self, src_lang, dst_lang, token):
-        d = self.forward.get(src_lang, {})
-        entry = d.get(token)
+        entry = self.forward.get(src_lang, {}).get(token)
         if not entry:
             return None
         return entry.get(dst_lang)
@@ -302,27 +286,48 @@ class Transcriber(QWidget):
     def _has_exact_mapping(self, lang, token):
         return token in self.forward.get(lang, {})
 
-    def _has_prefix_candidate(self, lang, prefix):
-        # True if any lexeme in `lang` starts with this prefix
-        # Used to decide whether a bracket might disappear once typing finishes.
-        d = self.forward.get(lang, {})
-        for k in d.keys():
-            if k.startswith(prefix):
-                return True
-        return False
-
-    # --- Tokenization -----------------------------------------------------
+    def _tokens(self, text, lang):
+        if lang in self.space_free:
+            return self._tokens_space_free(text)
+        return self._tokens_ws(text)
 
     @staticmethod
-    def _simple_tokens(text):
-        # Split on whitespace but keep single spaces between tokens on join.
-        # Normalize any sequence of whitespace to single spaces for stability.
-        parts = text.strip().split()
-        return parts
+    def _tokens_ws(text):
+        return text.strip().split() if text.strip() else []
 
     @staticmethod
-    def _join_tokens(tokens):
-        return " ".join(tokens)
+    def _tokens_space_free(text):
+        out = []
+        i = 0
+        n = len(text)
+        while i < n:
+            c = text[i]
+            if c == "[":
+                j = text.find("]", i + 1)
+                if j == -1:
+                    out.append(text[i:])  # incomplete bracket blob
+                    break
+                out.append(text[i : j + 1])
+                i = j + 1
+                continue
+            if "\u4e00" <= c <= "\u9fff":  # CJK Unified Ideographs
+                out.append(c)
+                i += 1
+                continue
+            # collect a run of non-CJK, non-bracket
+            j = i
+            while j < n:
+                cj = text[j]
+                if cj == "[" or ("\u4e00" <= cj <= "\u9fff"):
+                    break
+                j += 1
+            out.append(text[i:j])
+            i = j
+        # drop empty tokens introduced by adjacency
+        return [t for t in out if t != ""]
+
+    def _join(self, tokens, lang):
+        return "".join(tokens) if lang in self.space_free else " ".join(tokens)
 
 
 if __name__ == "__main__":
