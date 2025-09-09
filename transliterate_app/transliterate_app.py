@@ -1,5 +1,4 @@
 # pip install PySide6
-# Run: python tp_transcriber.py
 # Put one or more CSVs next to this file named like: lang_*.csv
 
 import sys
@@ -8,7 +7,6 @@ from io import StringIO
 from pathlib import Path
 from collections import OrderedDict
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -101,7 +99,7 @@ class FocusAwareText(QTextEdit):
         self._has_focus = False
         super().focusOutEvent(e)
 
-    def hasEditingFocus(self):
+    def has_editing_focus(self):
         return self._has_focus
 
 
@@ -162,7 +160,7 @@ class Transcriber(QWidget):
         self.left_edit.focusOutEvent = self._wrap_focus_out(self.left_edit, "left")
         self.right_edit.focusOutEvent = self._wrap_focus_out(self.right_edit, "right")
 
-        # Initialize from the FIRST found CSV (no hardcoding)
+        # Initialize from the FIRST found CSV
         first_set_name = next(iter(self.language_sets.keys()))
         self.set_combo.setCurrentText(first_set_name)
         self._on_change_set(first_set_name)
@@ -172,7 +170,6 @@ class Transcriber(QWidget):
             self.left_lang.setCurrentText(self._label_for(self.header[0]))
         if len(self.header) >= 2:
             self.right_lang.setCurrentText(self._label_for(self.header[1]))
-
         self.left_edit.setPlainText("mi sona e ni.")
         self._translate_fill("left")
 
@@ -239,11 +236,9 @@ class Transcriber(QWidget):
                 if src_side == "left"
                 else self._real_lang(self.left_lang)
             )
-
             src_text = src_edit.toPlainText()
             src_tokens = self._tokens(src_text, src_lang)
-
-            src_is_typing = src_edit.hasEditingFocus()
+            src_is_typing = src_edit.has_editing_focus()
             at_end = src_edit.textCursor().position() == len(src_text)
 
             dst_tokens = []
@@ -263,17 +258,15 @@ class Transcriber(QWidget):
                 if mapped is not None:
                     dst_tokens.append(mapped)
                     continue
-
                 if src_is_typing and is_last and at_end:
                     dst_tokens.append(f"[{tok}]")
                 else:
                     dst_tokens.append(f"[{tok}]")
-
             new_dst = self._join(dst_tokens, dst_lang)
             if new_dst != dst_edit.toPlainText():
                 cursor = dst_edit.textCursor()
                 dst_edit.setPlainText(new_dst)
-                if not dst_edit.hasEditingFocus():
+                if not dst_edit.has_editing_focus():
                     dst_edit.setTextCursor(cursor)
         finally:
             self.updating = False
