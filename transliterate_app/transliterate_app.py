@@ -221,13 +221,14 @@ class Transcriber(QWidget):
             "lang_combo": lang_combo,
             "close_btn": close_btn,
             "edit": edit,
+            "last_lang": lang_combo.currentText(),
         }
         self.panes_row.addLayout(col)
         self.panes.append(pane)
 
         # Wire signals (bind pane at connect-time to avoid late-binding issues)
         lang_combo.currentTextChanged.connect(
-            lambda _: self._on_pane_lang_changed(pane)
+            lambda new_label: self._on_pane_lang_changed(pane, new_label)
         )
         close_btn.clicked.connect(lambda _: self._close_pane(pane))
         edit.textChanged.connect(lambda: self._on_text_changed(pane))
@@ -327,8 +328,35 @@ class Transcriber(QWidget):
 
     # -------- Translation flow --------
 
-    def _on_pane_lang_changed(self, src_pane):
-        self._translate_from_source(src_pane)
+    def _on_pane_lang_changed(self, pane, new_label):
+        if self.updating:
+            return
+        old_label = pane.get("last_lang", new_label)
+        old_lang = self.display_to_real.get(old_label, old_label)
+        new_lang = self.display_to_real.get(new_label, new_label)
+        text = pane["edit"].toPlainText()
+        tokens = self._tokens(text, old_lang)
+        # todo :: this is very duplicated code, isn't it?
+        dst_tokens = []
+        for tok in tokens:
+            if tok in PUNCT:
+                dst_tokens.append(tok)
+            elif tok.startswith("[") and tok.endswith("]"):
+                inside = tok[1:-1]
+                mapped = self._map_exact(old_lang, new_lang, inside)
+                dst_tokens.append(mapped if mapped is not None else f"[{inside}]")
+            else:
+                mapped = self._map_exact(old_lang, new_lang, tok)
+                dst_tokens.append(mapped if mapped is not None else f"[{tok}]")
+        new_text = self._join(dst_tokens, new_lang)
+        self.updating = True
+        try:
+            cursor = pane["edit"].textCursor()
+            pane["edit"].setPlainText(new_text)
+            pane["edit"].setTextCursor(cursor)
+            pane["last_lang"] = new_label
+        finally:
+            self.updating = False
 
     def _on_text_changed(self, src_pane):
         if self.updating:
@@ -349,6 +377,7 @@ class Transcriber(QWidget):
             return
         self.updating = True
         try:
+            # todo :: also very duplicated code
             edit = pane["edit"]
             lang = self._real_lang_of_pane(pane)
             tokens = self._tokens(edit.toPlainText(), lang)
