@@ -38,8 +38,6 @@ def build_index_maps(header, rows):
                 continue
             d = forward[lang_from].setdefault(src, {})
             for i_to, lang_to in enumerate(header):
-                if i_to == i_from:
-                    continue
                 d[lang_to] = r[i_to]
     return forward
 
