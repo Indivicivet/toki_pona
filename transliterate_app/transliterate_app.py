@@ -6,6 +6,7 @@ import csv
 from io import StringIO
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -102,8 +103,11 @@ class Transcriber(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Transcriber")
-        self.setMinimumSize(860, 520)
+        self.setMinimumSize(1280, 720)
         self.setLayout(QVBoxLayout())
+
+        font = QFont()
+        font.setPointSize(18)  # pick a size you like
 
         # Language set selector
         top = QHBoxLayout()
@@ -134,6 +138,12 @@ class Transcriber(QWidget):
         self.right_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         edits.addWidget(self.left_edit)
         edits.addWidget(self.right_edit)
+
+        self.left_edit.setFont(font)
+        self.right_edit.setFont(font)
+        self.left_lang.setFont(font)
+        self.right_lang.setFont(font)
+        self.set_combo.setFont(font)
 
         self.header = []
         self.rows = []
